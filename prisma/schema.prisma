@@ -32,3 +32,12 @@ model Session {
   refreshToken        String?
   refreshTokenExpires DateTime?
 }
+
+model MigrationRun {
+  id        String   @id @default(cuid())
+  shop      String
+  createdAt DateTime @default(now())
+  fileName  String?
+  summary   String
+  report    String
+}

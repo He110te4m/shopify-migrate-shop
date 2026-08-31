@@ -18,8 +18,10 @@ export default function App() {
   return (
     <AppProvider embedded apiKey={apiKey}>
       <s-app-nav>
-        <s-link href="/app">Home</s-link>
-        <s-link href="/app/additional">Additional page</s-link>
+        <s-link href="/app">首页</s-link>
+        <s-link href="/app/export">导出定义</s-link>
+        <s-link href="/app/import">导入定义</s-link>
+        <s-link href="/app/history">迁移历史</s-link>
       </s-app-nav>
       <Outlet />
     </AppProvider>
