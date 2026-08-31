@@ -49,8 +49,10 @@ export interface MetafieldDef {
   access: MetafieldAccess | null;
 }
 
+export type MigrationItemKind = "metaobject" | "metafield" | "page";
+
 export interface SkippedItem {
-  kind: "metaobject" | "metafield";
+  kind: MigrationItemKind;
   identifier: string;
   reason: string;
 }
@@ -64,10 +66,35 @@ export interface MigrationFile {
   skipped: SkippedItem[];
 }
 
+export interface ExportedPageMetafield {
+  namespace: string;
+  key: string;
+  type: string;
+  value: string;
+}
+
+export interface ExportedPage {
+  title: string;
+  handle: string;
+  body: string;
+  isPublished: boolean;
+  templateSuffix: string | null;
+  metafields: ExportedPageMetafield[];
+}
+
+export interface PagesMigrationFile {
+  version: 1;
+  kind: "pages";
+  exportedAt: string;
+  shop: string;
+  pages: ExportedPage[];
+  skipped: SkippedItem[];
+}
+
 export type PlanAction = "create" | "update" | "skip" | "fail";
 
 export interface PlanItem {
-  kind: "metaobject" | "metafield";
+  kind: MigrationItemKind;
   identifier: string;
   action: PlanAction;
   reason?: string;

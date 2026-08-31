@@ -32,6 +32,12 @@ const ACTION_TONE: Record<PlanAction, "success" | "info" | "warning" | "critical
   fail: "critical",
 };
 
+const KIND_LABEL: Record<string, string> = {
+  metaobject: "Metaobject",
+  metafield: "Metafield",
+  page: "Page",
+};
+
 export default function HistoryDetailPage() {
   const { createdAt, fileName, report } = useLoaderData<typeof loader>();
 
@@ -57,7 +63,7 @@ export default function HistoryDetailPage() {
             {report.results.map((item, index) => (
               <tr key={index} style={{ borderBottom: "1px solid #f1f2f4" }}>
                 <td style={{ padding: "8px" }}>
-                  {item.kind === "metaobject" ? "Metaobject" : "Metafield"}
+                  {KIND_LABEL[item.kind] ?? item.kind}
                 </td>
                 <td style={{ padding: "8px", wordBreak: "break-all" }}>{item.identifier}</td>
                 <td style={{ padding: "8px" }}>

@@ -2,12 +2,11 @@ import type { AdminApiContext } from "@shopify/shopify-app-react-router/server";
 import { migrationRuns } from "../storage.server";
 import {
   fetchAllDefinitions,
-  formatUserErrors,
   METAFIELD_DEFINITION_CREATE,
   METAFIELD_DEFINITION_UPDATE,
   METAOBJECT_DEFINITION_CREATE,
   METAOBJECT_DEFINITION_UPDATE,
-  type UserError,
+  runMutation,
 } from "./graphql.server";
 import {
   referencedMetaobjectTypes,
@@ -35,53 +34,6 @@ function metafieldIdentifier(def: {
   key: string;
 }): string {
   return `${def.ownerType}.${def.namespace}.${def.key}`;
-}
-
-interface MutationPayload<T> {
-  userErrors: UserError[];
-  [key: string]: T | UserError[] | null;
-}
-
-function extractGraphQLError(error: unknown): string {
-  const gqlErrors = (
-    error as {
-      body?: { errors?: { graphQLErrors?: { message: string }[] } };
-    }
-  )?.body?.errors?.graphQLErrors;
-  if (gqlErrors?.length) {
-    return gqlErrors.map((e) => e.message).join("; ");
-  }
-  return error instanceof Error ? error.message : String(error);
-}
-
-async function runMutation<T>(
-  graphql: Admin,
-  query: string,
-  variables: Record<string, unknown>,
-  payloadKey: string,
-): Promise<{ data: T | null; error: string | null }> {
-  let response: Response;
-  try {
-    response = await graphql(query, { variables });
-  } catch (error) {
-    return { data: null, error: extractGraphQLError(error) };
-  }
-  const body = (await response.json()) as {
-    data?: Record<string, MutationPayload<T>>;
-    errors?: { message: string }[];
-  };
-  if (body.errors?.length) {
-    return {
-      data: null,
-      error: body.errors.map((e) => e.message).join("; "),
-    };
-  }
-  const payload = body.data?.[payloadKey];
-  if (!payload) return { data: null, error: "无数据返回" };
-  if (payload.userErrors.length) {
-    return { data: null, error: formatUserErrors(payload.userErrors) };
-  }
-  return { data: payload as unknown as T, error: null };
 }
 
 function buildCapabilitiesInput(def: MetaobjectDef) {

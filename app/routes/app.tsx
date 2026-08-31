@@ -21,6 +21,8 @@ export default function App() {
         <s-link href="/app">首页</s-link>
         <s-link href="/app/export">导出定义</s-link>
         <s-link href="/app/import">导入定义</s-link>
+        <s-link href="/app/export/pages">导出页面</s-link>
+        <s-link href="/app/import/pages">导入页面</s-link>
         <s-link href="/app/history">迁移历史</s-link>
       </s-app-nav>
       <Outlet />
