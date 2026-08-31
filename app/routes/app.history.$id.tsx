@@ -1,20 +1,18 @@
 import type { HeadersFunction, LoaderFunctionArgs } from "react-router";
 import { useLoaderData } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
-import prisma from "../db.server";
+import { migrationRuns } from "../storage.server";
 import { authenticate } from "../shopify.server";
 import type { ImportReport, PlanAction } from "../migrate/types";
 
 export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
-  const run = await prisma.migrationRun.findFirst({
-    where: { id: params.id, shop: session.shop },
-  });
+  const run = await migrationRuns.get(session.shop, params.id!);
   if (!run) {
     throw new Response("Not Found", { status: 404 });
   }
   return {
-    createdAt: run.createdAt.toISOString(),
+    createdAt: run.createdAt,
     fileName: run.fileName,
     report: JSON.parse(run.report) as ImportReport,
   };

@@ -1,0 +1,11 @@
+[build]
+base = "."
+command = "pnpm build"
+publish = "build/client"
+
+[build.environment]
+NODE_VERSION = "22.21.1"
+PNPM_VERSION = "10.33.2"
+
+[dev]
+command = "pnpm dev"

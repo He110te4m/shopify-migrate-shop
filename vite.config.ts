@@ -1,4 +1,5 @@
 import { reactRouter } from "@react-router/dev/vite";
+import netlifyPlugin from "@netlify/vite-plugin-react-router";
 import { defineConfig, type UserConfig } from "vite";
 import tsconfigPaths from "vite-tsconfig-paths";
 
@@ -51,6 +52,8 @@ export default defineConfig({
   plugins: [
     reactRouter(),
     tsconfigPaths(),
+    // Netlify 构建环境（NETLIFY=true）下才启用，保持本地/Docker 构建产物为 react-router-serve 可用的标准格式
+    ...(process.env.NETLIFY === "true" ? [netlifyPlugin()] : []),
   ],
   build: {
     assetsInlineLimit: 0,

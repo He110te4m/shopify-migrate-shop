@@ -1,5 +1,5 @@
 import type { AdminApiContext } from "@shopify/shopify-app-react-router/server";
-import prisma from "../db.server";
+import { migrationRuns } from "../storage.server";
 import {
   fetchAllDefinitions,
   formatUserErrors,
@@ -396,13 +396,11 @@ export async function executeImport(
     summary,
   };
 
-  await prisma.migrationRun.create({
-    data: {
-      shop,
-      fileName: fileName ?? null,
-      summary: JSON.stringify(summary),
-      report: JSON.stringify(report),
-    },
+  await migrationRuns.save({
+    shop,
+    fileName: fileName ?? null,
+    summary: JSON.stringify(summary),
+    report: JSON.stringify(report),
   });
 
   return report;
