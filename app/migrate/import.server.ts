@@ -42,13 +42,30 @@ interface MutationPayload<T> {
   [key: string]: T | UserError[] | null;
 }
 
+function extractGraphQLError(error: unknown): string {
+  const gqlErrors = (
+    error as {
+      body?: { errors?: { graphQLErrors?: { message: string }[] } };
+    }
+  )?.body?.errors?.graphQLErrors;
+  if (gqlErrors?.length) {
+    return gqlErrors.map((e) => e.message).join("; ");
+  }
+  return error instanceof Error ? error.message : String(error);
+}
+
 async function runMutation<T>(
   graphql: Admin,
   query: string,
   variables: Record<string, unknown>,
   payloadKey: string,
 ): Promise<{ data: T | null; error: string | null }> {
-  const response = await graphql(query, { variables });
+  let response: Response;
+  try {
+    response = await graphql(query, { variables });
+  } catch (error) {
+    return { data: null, error: extractGraphQLError(error) };
+  }
   const body = (await response.json()) as {
     data?: Record<string, MutationPayload<T>>;
     errors?: { message: string }[];
@@ -92,6 +109,28 @@ function buildFieldCreateInput(
   };
 }
 
+// MetaobjectDefinitionCreateInput.access.admin 仅接受 MERCHANT_READ/MERCHANT_READ_WRITE,
+// 导出侧可能出现的 PUBLIC_READ* 需降级映射
+const METAOBJECT_ADMIN_ACCESS_MAP: Record<string, string> = {
+  MERCHANT_READ: "MERCHANT_READ",
+  MERCHANT_READ_WRITE: "MERCHANT_READ_WRITE",
+  PUBLIC_READ: "MERCHANT_READ",
+  PUBLIC_READ_WRITE: "MERCHANT_READ_WRITE",
+};
+
+function buildMetaobjectAccessInput(access: MetaobjectDef["access"]) {
+  if (!access) return undefined;
+  return {
+    ...(access.admin
+      ? {
+          admin:
+            METAOBJECT_ADMIN_ACCESS_MAP[access.admin] ?? "MERCHANT_READ_WRITE",
+        }
+      : {}),
+    ...(access.storefront ? { storefront: access.storefront } : {}),
+  };
+}
+
 function buildMetaobjectCreateInput(
   def: MetaobjectDef,
   typeToGid: Map<string, string>,
@@ -100,7 +139,7 @@ function buildMetaobjectCreateInput(
     name: def.name,
     type: def.type,
     ...(def.description ? { description: def.description } : {}),
-    ...(def.access ? { access: def.access } : {}),
+    ...(def.access ? { access: buildMetaobjectAccessInput(def.access) } : {}),
     ...(buildCapabilitiesInput(def)
       ? { capabilities: buildCapabilitiesInput(def) }
       : {}),
