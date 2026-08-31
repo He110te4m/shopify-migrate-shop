@@ -186,17 +186,26 @@ function buildMetafieldCreateInput(
   };
 }
 
-export async function executeImport(
+const BATCH_SIZE = 10;
+
+const itemKey = (kind: string, identifier: string) => `${kind}:${identifier}`;
+
+// 分批执行导入:每批重新拉取目标定义并重算计划(天然幂等),只执行前 batchSize 个
+// 待处理(create/update)项;exclude 中的项(上一批已失败)直接跳过,避免无限重试
+export async function executeBatch(
   graphql: Admin,
   file: MigrationFile,
-  shop: string,
-  fileName?: string,
-): Promise<ImportReport> {
+  options: { exclude?: string[]; batchSize?: number } = {},
+): Promise<{ results: ResultItem[]; pending: number }> {
+  const batchSize = options.batchSize ?? BATCH_SIZE;
+  const exclude = new Set(options.exclude ?? []);
+
   const fetched = await fetchAllDefinitions(graphql);
   const plan = planWithDefinitions(file, fetched);
 
   const typeToGid = new Map(fetched.metaobjects.map((d) => [d.type, d.id]));
   const results: ResultItem[] = [];
+  let slots = batchSize;
 
   const sourceMetaobjectByType = new Map(
     file.metaobjectDefinitions.map((d) => [d.type, d]),
@@ -214,17 +223,21 @@ export async function executeImport(
   // ---- Phase 1a: create metaobjects, dependency-ordered with multi-round retry ----
   const pendingCreates = new Map<string, MetaobjectDef>();
   for (const item of plan.items) {
-    if (item.kind === "metaobject" && item.action === "create") {
+    if (
+      item.kind === "metaobject" &&
+      item.action === "create" &&
+      !exclude.has(itemKey(item.kind, item.identifier))
+    ) {
       const def = sourceMetaobjectByType.get(item.identifier);
       if (def) pendingCreates.set(def.type, def);
     }
   }
 
-  const createdResults = new Map<string, ResultItem>();
   let progress = true;
-  while (pendingCreates.size && progress) {
+  while (pendingCreates.size && progress && slots > 0) {
     progress = false;
     for (const [type, def] of [...pendingCreates]) {
+      if (slots <= 0) break;
       const refs = def.fieldDefinitions.flatMap((f) =>
         referencedMetaobjectTypes(f.validations),
       );
@@ -235,8 +248,9 @@ export async function executeImport(
         { definition: buildMetaobjectCreateInput(def, typeToGid) },
         "metaobjectDefinitionCreate",
       );
+      slots--;
       if (error || !data) {
-        createdResults.set(type, {
+        results.push({
           kind: "metaobject",
           identifier: type,
           action: "fail",
@@ -244,29 +258,30 @@ export async function executeImport(
         });
       } else {
         typeToGid.set(type, data.id);
-        createdResults.set(type, {
-          kind: "metaobject",
-          identifier: type,
-          action: "create",
-        });
+        results.push({ kind: "metaobject", identifier: type, action: "create" });
       }
       pendingCreates.delete(type);
       progress = true;
     }
   }
-  for (const [type] of pendingCreates) {
-    createdResults.set(type, {
-      kind: "metaobject",
-      identifier: type,
-      action: "fail",
-      reason: "依赖未满足（可能存在循环依赖或依赖创建失败）",
-    });
+  // 槽位仍有剩余但无法推进 = 依赖已失败/被排除,永远无法满足,直接判失败
+  if (slots > 0) {
+    for (const [type] of pendingCreates) {
+      results.push({
+        kind: "metaobject",
+        identifier: type,
+        action: "fail",
+        reason: "依赖未满足（可能存在循环依赖或依赖创建失败）",
+      });
+    }
+    pendingCreates.clear();
   }
 
   // ---- Phase 1b: update existing metaobjects (add missing / sync changed fields) ----
-  const updatedResults = new Map<string, ResultItem>();
   for (const item of plan.items) {
+    if (slots <= 0) break;
     if (item.kind !== "metaobject" || item.action !== "update") continue;
+    if (exclude.has(itemKey(item.kind, item.identifier))) continue;
     const source = sourceMetaobjectByType.get(item.identifier);
     const target = targetMetaobjectByType.get(item.identifier);
     if (!source || !target) continue;
@@ -291,8 +306,9 @@ export async function executeImport(
         };
       }),
     ];
+    slots--;
     if (!operations.length) {
-      updatedResults.set(item.identifier, { ...item, action: "skip" });
+      results.push({ ...item, action: "skip" });
       continue;
     }
     const { error } = await runMutation<{ id: string }>(
@@ -301,36 +317,35 @@ export async function executeImport(
       { id: target.id, definition: { fieldDefinitions: operations } },
       "metaobjectDefinitionUpdate",
     );
-    updatedResults.set(
-      item.identifier,
-      error
-        ? { ...item, action: "fail", reason: `更新失败: ${error}` }
-        : { ...item },
+    results.push(
+      error ? { ...item, action: "fail", reason: `更新失败: ${error}` } : { ...item },
     );
   }
 
   // ---- Phase 2: metafields ----
-  const metafieldResults = new Map<string, ResultItem>();
   for (const item of plan.items) {
+    if (slots <= 0) break;
     if (item.kind !== "metafield") continue;
+    if (item.action !== "create" && item.action !== "update") continue;
+    if (exclude.has(itemKey(item.kind, item.identifier))) continue;
     const source = sourceMetafieldById.get(item.identifier);
-    if (!source) {
-      metafieldResults.set(item.identifier, { ...item });
+    if (!source) continue;
+
+    const { validations, missingTypes } = resolveValidations(
+      source.validations,
+      typeToGid,
+    );
+    slots--;
+    if (missingTypes.length) {
+      results.push({
+        ...item,
+        action: "fail",
+        reason: `依赖的 metaobject 创建失败: ${missingTypes.join(", ")}`,
+      });
       continue;
     }
+
     if (item.action === "create") {
-      const { validations, missingTypes } = resolveValidations(
-        source.validations,
-        typeToGid,
-      );
-      if (missingTypes.length) {
-        metafieldResults.set(item.identifier, {
-          ...item,
-          action: "fail",
-          reason: `依赖的 metaobject 创建失败: ${missingTypes.join(", ")}`,
-        });
-        continue;
-      }
       const createInput = buildMetafieldCreateInput(source, typeToGid);
       const { data, error } = await runMutation<{ id: string }>(
         graphql,
@@ -339,7 +354,7 @@ export async function executeImport(
         "metafieldDefinitionCreate",
       );
       if (error || !data) {
-        metafieldResults.set(item.identifier, {
+        results.push({
           ...item,
           action: "fail",
           reason: `创建失败: ${error ?? "无数据返回"}`,
@@ -363,69 +378,52 @@ export async function executeImport(
         );
         if (pinResult.error) detail = `已创建，但置顶失败: ${pinResult.error}`;
       }
-      metafieldResults.set(item.identifier, { ...item, detail });
+      results.push({ ...item, detail });
       continue;
     }
-    if (item.action === "update") {
-      const target = targetMetafieldById.get(item.identifier);
-      if (!target) {
-        metafieldResults.set(item.identifier, { ...item });
-        continue;
-      }
-      const { validations, missingTypes } = resolveValidations(
-        source.validations,
-        typeToGid,
-      );
-      if (missingTypes.length) {
-        metafieldResults.set(item.identifier, {
-          ...item,
-          action: "fail",
-          reason: `依赖的 metaobject 创建失败: ${missingTypes.join(", ")}`,
-        });
-        continue;
-      }
-      const { error } = await runMutation<{ id: string }>(
-        graphql,
-        METAFIELD_DEFINITION_UPDATE,
-        {
-          definition: {
-            namespace: source.namespace,
-            key: source.key,
-            ownerType: source.ownerType,
-            name: source.name,
-            description: source.description ?? "",
-            validations,
-            pin: source.pinnedPosition !== null,
-          },
+
+    const target = targetMetafieldById.get(item.identifier);
+    if (!target) {
+      results.push({ ...item });
+      continue;
+    }
+    const { error } = await runMutation<{ id: string }>(
+      graphql,
+      METAFIELD_DEFINITION_UPDATE,
+      {
+        definition: {
+          namespace: source.namespace,
+          key: source.key,
+          ownerType: source.ownerType,
+          name: source.name,
+          description: source.description ?? "",
+          validations,
+          pin: source.pinnedPosition !== null,
         },
-        "metafieldDefinitionUpdate",
-      );
-      metafieldResults.set(
-        item.identifier,
-        error
-          ? { ...item, action: "fail", reason: `更新失败: ${error}` }
-          : { ...item },
-      );
-      continue;
-    }
-    metafieldResults.set(item.identifier, { ...item });
+      },
+      "metafieldDefinitionUpdate",
+    );
+    results.push(
+      error ? { ...item, action: "fail", reason: `更新失败: ${error}` } : { ...item },
+    );
   }
 
-  // ---- Assemble report in plan order ----
-  for (const item of plan.items) {
-    if (item.kind === "metaobject") {
-      if (item.action === "create" && createdResults.has(item.identifier)) {
-        results.push(createdResults.get(item.identifier)!);
-      } else if (item.action === "update" && updatedResults.has(item.identifier)) {
-        results.push(updatedResults.get(item.identifier)!);
-      } else {
-        results.push({ ...item });
-      }
-    } else {
-      results.push(metafieldResults.get(item.identifier) ?? { ...item });
-    }
-  }
+  const executed = new Set(results.map((r) => itemKey(r.kind, r.identifier)));
+  const pending = plan.items.filter(
+    (i) =>
+      (i.action === "create" || i.action === "update") &&
+      !exclude.has(itemKey(i.kind, i.identifier)) &&
+      !executed.has(itemKey(i.kind, i.identifier)),
+  ).length;
 
+  return { results, pending };
+}
+
+export async function saveImportReport(
+  shop: string,
+  fileName: string | undefined,
+  results: ResultItem[],
+): Promise<ImportReport> {
   const summary: Record<PlanAction, number> = { create: 0, update: 0, skip: 0, fail: 0 };
   for (const r of results) summary[r.action] += 1;
 
