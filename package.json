@@ -38,7 +38,7 @@
     "vite-tsconfig-paths": "^5.1.4"
   },
   "devDependencies": {
-    "@netlify/vite-plugin-react-router": "^3.1.1",
+    "@netlify/vite-plugin-react-router": "^4.0.0",
     "@shopify/api-codegen-preset": "^1.2.0",
     "@shopify/polaris-types": "^1.0.1",
     "@types/eslint": "^9.6.1",
