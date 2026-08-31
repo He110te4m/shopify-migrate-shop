@@ -63,10 +63,7 @@ interface RawMetaobjectDefinitionNode {
   capabilities: {
     publishable: { enabled: boolean };
     translatable: { enabled: boolean };
-    renderable: {
-      enabled: boolean;
-      data: { onlineStore: { templateSuffix: string | null } | null } | null;
-    };
+    renderable: { enabled: boolean };
   } | null;
 }
 
@@ -123,11 +120,6 @@ const METAOBJECT_DEFINITIONS_QUERY = `#graphql
           }
           renderable {
             enabled
-            data {
-              onlineStore {
-                templateSuffix
-              }
-            }
           }
         }
       }
@@ -178,8 +170,6 @@ function mapCapabilities(
     publishable: raw.publishable?.enabled ?? false,
     translatable: raw.translatable?.enabled ?? false,
     renderable: raw.renderable?.enabled ?? false,
-    renderableTemplateSuffix:
-      raw.renderable?.data?.onlineStore?.templateSuffix ?? null,
   };
 }
 

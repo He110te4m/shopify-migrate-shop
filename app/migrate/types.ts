@@ -21,7 +21,6 @@ export interface MetaobjectCapabilities {
   publishable: boolean;
   translatable: boolean;
   renderable: boolean;
-  renderableTemplateSuffix: string | null;
 }
 
 export interface MetaobjectDef {

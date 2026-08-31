@@ -73,16 +73,7 @@ function buildCapabilitiesInput(def: MetaobjectDef) {
   return {
     publishable: { enabled: c.publishable },
     translatable: { enabled: c.translatable },
-    renderable: {
-      enabled: c.renderable,
-      ...(c.renderable && c.renderableTemplateSuffix
-        ? {
-            data: {
-              onlineStore: { templateSuffix: c.renderableTemplateSuffix },
-            },
-          }
-        : {}),
-    },
+    renderable: { enabled: c.renderable },
   };
 }
 
