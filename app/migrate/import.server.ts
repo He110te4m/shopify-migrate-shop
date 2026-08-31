@@ -109,24 +109,29 @@ function buildFieldCreateInput(
   };
 }
 
-// MetaobjectDefinitionCreateInput.access.admin 仅接受 MERCHANT_READ/MERCHANT_READ_WRITE,
-// 导出侧可能出现的 PUBLIC_READ* 需降级映射
-const METAOBJECT_ADMIN_ACCESS_MAP: Record<string, string> = {
+// MetaobjectDefinitionCreateInput/MetafieldDefinitionInput 的 access.admin:
+// 1. 仅接受 MERCHANT_READ/MERCHANT_READ_WRITE,导出侧的 PUBLIC_READ* 需降级映射
+// 2. 仅允许 app-reserved($app 前缀)的定义指定,商户定义创建时不能传 admin
+const ADMIN_ACCESS_INPUT_MAP: Record<string, string> = {
   MERCHANT_READ: "MERCHANT_READ",
   MERCHANT_READ_WRITE: "MERCHANT_READ_WRITE",
   PUBLIC_READ: "MERCHANT_READ",
   PUBLIC_READ_WRITE: "MERCHANT_READ_WRITE",
 };
 
-function buildMetaobjectAccessInput(access: MetaobjectDef["access"]) {
+function mapAdminAccess(value: string, appReserved: boolean) {
+  if (!appReserved) return undefined;
+  return ADMIN_ACCESS_INPUT_MAP[value] ?? "MERCHANT_READ_WRITE";
+}
+
+function buildMetaobjectAccessInput(def: MetaobjectDef) {
+  const access = def.access;
   if (!access) return undefined;
+  const admin = access.admin
+    ? mapAdminAccess(access.admin, def.type.startsWith("$app:"))
+    : undefined;
   return {
-    ...(access.admin
-      ? {
-          admin:
-            METAOBJECT_ADMIN_ACCESS_MAP[access.admin] ?? "MERCHANT_READ_WRITE",
-        }
-      : {}),
+    ...(admin ? { admin } : {}),
     ...(access.storefront ? { storefront: access.storefront } : {}),
   };
 }
@@ -139,7 +144,7 @@ function buildMetaobjectCreateInput(
     name: def.name,
     type: def.type,
     ...(def.description ? { description: def.description } : {}),
-    ...(def.access ? { access: buildMetaobjectAccessInput(def.access) } : {}),
+    ...(def.access ? { access: buildMetaobjectAccessInput(def) } : {}),
     ...(buildCapabilitiesInput(def)
       ? { capabilities: buildCapabilitiesInput(def) }
       : {}),
@@ -154,6 +159,12 @@ function buildMetafieldCreateInput(
   typeToGid: Map<string, string>,
 ) {
   const { validations } = resolveValidations(def.validations, typeToGid);
+  const admin = def.access?.admin
+    ? mapAdminAccess(
+        def.access.admin,
+        def.namespace === "$app" || def.namespace.startsWith("$app:"),
+      )
+    : undefined;
   return {
     ownerType: def.ownerType,
     namespace: def.namespace,
@@ -162,11 +173,11 @@ function buildMetafieldCreateInput(
     type: def.type,
     ...(def.description ? { description: def.description } : {}),
     ...(validations.length ? { validations } : {}),
-    ...(def.access?.admin || def.access?.storefront
+    ...(admin || def.access?.storefront
       ? {
           access: {
-            ...(def.access.admin ? { admin: def.access.admin } : {}),
-            ...(def.access.storefront
+            ...(admin ? { admin } : {}),
+            ...(def.access?.storefront
               ? { storefront: def.access.storefront }
               : {}),
           },
