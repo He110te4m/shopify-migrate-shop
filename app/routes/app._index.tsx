@@ -46,6 +46,9 @@ export default function Index() {
             app-owned 定义（$app 前缀）无法跨应用迁移，会在报告中列出
           </s-list-item>
           <s-list-item>
+            产品导出文件保留全部商品与变体条目（无 metafield 时为空数组），并支持按 namespace 过滤与产品选择；商品较多时分批导出
+          </s-list-item>
+          <s-list-item>
             产品与变体 metafield 值按 handle 优先、变体 SKU 兜底匹配目标产品，再按 SKU / 变体标题匹配变体；不会创建产品
           </s-list-item>
           <s-list-item>

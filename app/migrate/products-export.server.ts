@@ -5,24 +5,29 @@ import type {
   ExportedProduct,
   ExportedVariant,
   MetafieldFilter,
-  ProductsMigrationFile,
   SkippedItem,
 } from "./types";
 
 type Admin = AdminApiContext["graphql"];
 
-export async function buildProductsMigrationFile(
+export interface ProductsChunk {
+  products: ExportedProduct[];
+  skipped: SkippedItem[];
+}
+
+// 供前端分批导出:每批只处理一批产品 ID,单次请求保持在函数超时以内。
+// 结构保持完整:没有 metafield 的商品与变体也会写入,便于核对导出范围。
+export async function exportProductsChunk(
   graphql: Admin,
-  shop: string,
   filter: MetafieldFilter,
-  options: { productIds?: string[] } = {},
-): Promise<ProductsMigrationFile> {
-  const products = await fetchAllProducts(graphql, options.productIds);
+  productIds: string[],
+): Promise<ProductsChunk> {
+  const fetched = await fetchAllProducts(graphql, productIds);
 
   const skipped: SkippedItem[] = [];
-  const exported: ExportedProduct[] = [];
+  const products: ExportedProduct[] = [];
 
-  for (const product of products) {
+  for (const product of fetched) {
     const metafields = collectMetafieldValues(product.metafields, {
       filter,
       kind: "product",
@@ -30,8 +35,7 @@ export async function buildProductsMigrationFile(
       skipped,
     });
 
-    const variants: ExportedVariant[] = [];
-    for (const variant of product.variants) {
+    const variants: ExportedVariant[] = product.variants.map((variant) => {
       const label = `${product.handle} / ${variant.sku || variant.title}`;
       if (variant.metafieldsTruncated) {
         skipped.push({
@@ -40,24 +44,19 @@ export async function buildProductsMigrationFile(
           reason: "该变体的 metafield 超过 250 条，仅导出前 250 条",
         });
       }
-      const variantMetafields = collectMetafieldValues(variant.metafields, {
-        filter,
-        kind: "product",
-        identifierPrefix: label,
-        skipped,
-      });
-      if (variantMetafields.length) {
-        variants.push({
-          sku: variant.sku,
-          title: variant.title,
-          metafields: variantMetafields,
-        });
-      }
-    }
+      return {
+        sku: variant.sku,
+        title: variant.title,
+        metafields: collectMetafieldValues(variant.metafields, {
+          filter,
+          kind: "product",
+          identifierPrefix: label,
+          skipped,
+        }),
+      };
+    });
 
-    // 没有可迁移值的商品不写入文件,避免产生无效条目
-    if (!metafields.length && !variants.length) continue;
-    exported.push({
+    products.push({
       handle: product.handle,
       title: product.title,
       metafields,
@@ -65,14 +64,5 @@ export async function buildProductsMigrationFile(
     });
   }
 
-  return {
-    version: 1,
-    kind: "products",
-    exportedAt: new Date().toISOString(),
-    shop,
-    filter,
-    productHandles: exported.map((product) => product.handle),
-    products: exported,
-    skipped,
-  };
+  return { products, skipped };
 }

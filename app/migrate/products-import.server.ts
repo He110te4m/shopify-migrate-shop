@@ -112,6 +112,8 @@ export function resolveProductWrite(
   const variantWrites: ResolvedProductWrite["variantWrites"] = [];
   const unmatchedVariants: ExportedVariant[] = [];
   for (const variant of source.variants) {
+    // 文件保留全部变体结构,但没有 metafield 的变体无需写入
+    if (!variant.metafields.length) continue;
     const target = matchTargetVariant(variant, match.product);
     if (target) variantWrites.push({ source: variant, target });
     else unmatchedVariants.push(variant);
@@ -123,7 +125,14 @@ const variantLabel = (variant: ExportedVariant) =>
   variant.sku || variant.title || "(无 SKU)";
 
 function planProducts(file: ProductsMigrationFile, index: ProductIndex): Plan {
-  const items: PlanItem[] = file.products.map((source) => {
+  // 导出文件保留了没有 metafield 的商品结构,这类商品没有可写入内容,不进入预检列表
+  const candidates = file.products.filter(
+    (product) =>
+      product.metafields.length ||
+      product.variants.some((variant) => variant.metafields.length),
+  );
+
+  const items: PlanItem[] = candidates.map((source) => {
     const resolved = resolveProductWrite(source, index);
     if (!resolved) {
       return {

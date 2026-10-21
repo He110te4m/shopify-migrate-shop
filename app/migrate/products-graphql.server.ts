@@ -327,6 +327,11 @@ export async function fetchAllProducts(
   return products;
 }
 
+// 只取 ID 列表,供前端分批导出时排空队列
+export async function fetchProductIds(graphql: AdminGraphql): Promise<string[]> {
+  return (await fetchProductList(graphql)).map((product) => product.id);
+}
+
 // 目标店铺只读取匹配所需的 handle/SKU/变体标题,不读取 metafield 值
 export async function fetchTargetProducts(
   graphql: AdminGraphql,

@@ -275,7 +275,7 @@ export default function ImportProductsPage() {
         <s-paragraph>
           匹配规则：产品按 handle 匹配，handle
           不存在时用变体 SKU 兜底；变体按 SKU 匹配，其次按变体标题。不会创建产品或变体，未匹配的项会记为跳过。
-          导入会覆盖目标店铺中相同 namespace/key 的 metafield
+          文件中没有 metafield 值的商品不会出现在预检列表。导入会覆盖目标店铺中相同 namespace/key 的 metafield
           值，请确认预检结果后再执行。建议先在目标店铺导入 metafield
           定义，否则可能因类型与已有定义不一致而写入失败。
         </s-paragraph>
