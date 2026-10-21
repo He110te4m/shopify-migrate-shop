@@ -8,8 +8,10 @@ import { parseMetafieldFilter } from "../migrate/metafields";
 import { exportProductsChunk } from "../migrate/products-export.server";
 import { fetchProductIds } from "../migrate/products-graphql.server";
 import type {
+  BuyBoxTemplateConfigFile,
   ExportedProduct,
   MetafieldFilter,
+  ProductsExportKind,
   ProductsMigrationFile,
   SkippedItem,
 } from "../migrate/types";
@@ -18,6 +20,10 @@ const PRODUCT_GID = /^gid:\/\/shopify\/Product\/\d+$/;
 
 // 每批 10 个产品(约 20 次 GraphQL 请求),避免单个请求超过函数超时
 const CHUNK_SIZE = 10;
+
+function parseExportKind(raw: FormDataEntryValue | null): ProductsExportKind {
+  return raw === "buy-box-template-config" ? raw : "products";
+}
 
 function parseProductIds(raw: FormDataEntryValue | null): string[] {
   if (typeof raw !== "string" || !raw) return [];
@@ -34,7 +40,13 @@ function parseProductIds(raw: FormDataEntryValue | null): string[] {
 }
 
 type ActionData =
-  | { mode: "ids"; ids: string[]; shop: string; filter: MetafieldFilter }
+  | {
+      mode: "ids";
+      ids: string[];
+      shop: string;
+      filter: MetafieldFilter;
+      kind: ProductsExportKind;
+    }
   | {
       mode: "chunk";
       products: ExportedProduct[];
@@ -52,6 +64,7 @@ export const action = async ({ request }: ActionFunctionArgs): Promise<ActionDat
   const { admin, session } = await authenticate.admin(request);
   const formData = await request.formData();
   const intent = formData.get("intent");
+  const kind = parseExportKind(formData.get("purpose"));
   const filter = parseMetafieldFilter(
     formData.get("mode"),
     formData.get("patterns"),
@@ -62,7 +75,7 @@ export const action = async ({ request }: ActionFunctionArgs): Promise<ActionDat
     const ids = selected.length
       ? selected
       : await fetchProductIds(admin.graphql);
-    return { mode: "ids", ids, shop: session.shop, filter };
+    return { mode: "ids", ids, shop: session.shop, filter, kind };
   }
 
   if (intent === "chunk") {
@@ -71,6 +84,7 @@ export const action = async ({ request }: ActionFunctionArgs): Promise<ActionDat
       admin.graphql,
       filter,
       ids,
+      kind,
     );
     return { mode: "chunk", products, skipped, shop: session.shop };
   }
@@ -87,6 +101,7 @@ export default function ExportProductsPage() {
   const patternsRef = useRef<HTMLTextAreaElement>(null);
 
   const [selected, setSelected] = useState<SelectedProduct[]>([]);
+  const [purpose, setPurpose] = useState<ProductsExportKind>("products");
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(
     null,
   );
@@ -95,12 +110,17 @@ export default function ExportProductsPage() {
     products: number;
     metafields: number;
     skipped: number;
+    kind: ProductsExportKind;
   } | null>(null);
 
   const queueRef = useRef<string[]>([]);
   const productsRef = useRef<ExportedProduct[]>([]);
   const skippedRef = useRef<SkippedItem[]>([]);
-  const metaRef = useRef<{ shop: string; filter: MetafieldFilter } | null>(null);
+  const metaRef = useRef<{
+    shop: string;
+    filter: MetafieldFilter;
+    kind: ProductsExportKind;
+  } | null>(null);
   const selectedHandlesRef = useRef<string[]>([]);
   const handledRef = useRef<ActionData | null>(null);
 
@@ -111,6 +131,7 @@ export default function ExportProductsPage() {
     const formData = new FormData();
     formData.set("intent", "chunk");
     formData.set("productIds", JSON.stringify(ids));
+    formData.set("purpose", metaRef.current?.kind ?? "products");
     formData.set("mode", metaRef.current?.filter.mode ?? "all");
     formData.set(
       "patterns",
@@ -122,9 +143,8 @@ export default function ExportProductsPage() {
   const finish = () => {
     const meta = metaRef.current;
     if (!meta) return;
-    const file: ProductsMigrationFile = {
-      version: 1,
-      kind: "products",
+    const base = {
+      version: 1 as const,
       exportedAt: new Date().toISOString(),
       shop: meta.shop,
       filter: meta.filter,
@@ -133,6 +153,10 @@ export default function ExportProductsPage() {
       products: productsRef.current,
       skipped: skippedRef.current,
     };
+    const file: ProductsMigrationFile | BuyBoxTemplateConfigFile =
+      meta.kind === "buy-box-template-config"
+        ? { ...base, kind: "buy-box-template-config" }
+        : { ...base, kind: "products" };
 
     const metafields = productsRef.current.reduce(
       (total, product) =>
@@ -145,6 +169,7 @@ export default function ExportProductsPage() {
       products: file.products.length,
       metafields,
       skipped: file.skipped.length,
+      kind: file.kind,
     });
 
     const date = file.exportedAt.slice(0, 10);
@@ -154,7 +179,10 @@ export default function ExportProductsPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `shopify-products-${file.shop}-${date}.json`;
+    a.download =
+      file.kind === "buy-box-template-config"
+        ? `shopify-buy-box-template-config-${file.shop}-${date}.json`
+        : `shopify-products-${file.shop}-${date}.json`;
     a.click();
     URL.revokeObjectURL(url);
     setProgress(null);
@@ -173,6 +201,7 @@ export default function ExportProductsPage() {
     const formData = new FormData();
     formData.set("intent", "ids");
     formData.set("productIds", JSON.stringify(selected.map((p) => p.id)));
+    formData.set("purpose", purpose);
     formData.set("mode", modeRef.current?.value ?? "all");
     formData.set("patterns", patternsRef.current?.value ?? "");
     fetcher.submit(formData, { method: "post" });
@@ -190,7 +219,11 @@ export default function ExportProductsPage() {
     }
 
     if (data.mode === "ids") {
-      metaRef.current = { shop: data.shop, filter: data.filter };
+      metaRef.current = {
+        shop: data.shop,
+        filter: data.filter,
+        kind: data.kind,
+      };
       queueRef.current = data.ids;
       setProgress({ done: 0, total: data.ids.length });
       if (!data.ids.length) {
@@ -246,14 +279,47 @@ export default function ExportProductsPage() {
         <s-paragraph>
           除 metafield 值外，每个商品还会导出其主题模板后缀（templateSuffix，对应
           product.&lt;suffix&gt;.json），未使用自定义模板时为空。不迁移产品标题、价格、图片等基础字段，
-          也不会在目标店铺创建商品。 app-owned metafield（$app 命名空间）与 reference
-          类型（产品、变体、文件等引用，值为源店铺
-          GID）无法跨店铺迁移，会在导出文件中列为跳过项。
+          也不会在目标店铺创建商品。 app-owned metafield（$app 命名空间）无法跨应用迁移；
+          运行时导入模式下 reference 类型（产品、变体、文件等引用，值为源店铺
+          GID）也会被跳过并列为跳过项。模板配置模式例外：variant_reference /
+          list.variant_reference 会附带可移植引用。
         </s-paragraph>
         <s-paragraph>
-          文件包含全部商品与变体条目（没有 metafield 的条目也会保留，metafields 为空数组），
-          便于核对导出范围。导出按每批 10 个商品分批执行，商品较多时请保持页面打开。
+          运行时导入模式包含全部商品与变体条目（没有 metafield 的条目也会保留，metafields
+          为空数组），便于核对导出范围；模板配置模式只保留商品条目（variants
+          为空数组）。导出按每批 10 个商品分批执行，商品较多时请保持页面打开。
         </s-paragraph>
+      </s-section>
+
+      <s-section heading="导出用途">
+        <s-stack direction="block" gap="base">
+          <label htmlFor="purpose">文件用途</label>
+          <select
+            id="purpose"
+            name="purpose"
+            value={purpose}
+            onChange={(event) =>
+              setPurpose(event.target.value as ProductsExportKind)
+            }
+            disabled={busy}
+          >
+            <option value="products">运行时导入（products）</option>
+            <option value="buy-box-template-config">
+              模板配置（buy-box-template-config）
+            </option>
+          </select>
+          {purpose === "buy-box-template-config" ? (
+            <s-paragraph>
+              用于离线模板派生，不能在产品导入页导入。仅导出产品级 metafield；variant_reference
+              / list.variant_reference 会附带可移植引用（产品 handle、SKU、变体标题），
+              不导出变体级 metafield。
+            </s-paragraph>
+          ) : (
+            <s-paragraph>
+              生成可上传到目标店铺「导入产品」页的文件，用于预检与写入 metafield。
+            </s-paragraph>
+          )}
+        </s-stack>
       </s-section>
 
       <s-section heading="导出范围">
@@ -351,8 +417,10 @@ export default function ExportProductsPage() {
 
       {lastFile && !progress && !error && (
         <s-banner tone="success">
-          导出完成：{lastFile.products} 个商品，{lastFile.metafields} 条 metafield
-          值，{lastFile.skipped} 条跳过项。文件已开始下载。
+          导出完成（
+          {lastFile.kind === "buy-box-template-config" ? "模板配置" : "运行时导入"}）：
+          {lastFile.products} 个商品，{lastFile.metafields} 条 metafield 值，
+          {lastFile.skipped} 条跳过项。文件已开始下载。
         </s-banner>
       )}
     </s-page>

@@ -66,11 +66,21 @@ export interface MigrationFile {
   skipped: SkippedItem[];
 }
 
+// 跨店铺可移植的变体引用:不写 GID,只用目标店铺可重新匹配的业务键
+export interface PortableVariantReference {
+  kind: "product_variant";
+  productHandle: string;
+  sku: string | null;
+  variantTitle: string;
+}
+
 export interface ExportedMetafieldValue {
   namespace: string;
   key: string;
   type: string;
   value: string;
+  // 仅 buy-box-template-config 导出填充:把 variant_reference 的 GID 换成可移植引用
+  references?: PortableVariantReference[];
 }
 
 export interface ExportedPage {
@@ -126,6 +136,16 @@ export interface ProductsMigrationFile {
   products: ExportedProduct[];
   skipped: SkippedItem[];
 }
+
+// 模板配置导出复用产品迁移文件结构,但 kind 不同且不能在产品导入页导入
+export interface BuyBoxTemplateConfigFile
+  extends Omit<ProductsMigrationFile, "kind"> {
+  kind: "buy-box-template-config";
+}
+
+export type ProductsExportKind =
+  | ProductsMigrationFile["kind"]
+  | BuyBoxTemplateConfigFile["kind"];
 
 export type PlanAction = "create" | "update" | "skip" | "fail";
 

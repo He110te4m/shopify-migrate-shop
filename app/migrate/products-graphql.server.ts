@@ -1,4 +1,8 @@
+import type { VariantReferenceLookup } from "./metafields";
+import type { PortableVariantReference } from "./types";
+
 export interface RawMetafieldValue {
+  id: string;
   namespace: string;
   key: string;
   type: string;
@@ -87,6 +91,7 @@ const PRODUCT_METAFIELDS_QUERY = `#graphql
     product(id: $id) {
       metafields(first: $first, after: $after) {
         nodes {
+          id
           namespace
           key
           type
@@ -111,6 +116,7 @@ const PRODUCT_VARIANTS_QUERY = `#graphql
           title
           metafields(first: 250) {
             nodes {
+              id
               namespace
               key
               type
@@ -124,6 +130,44 @@ const PRODUCT_VARIANTS_QUERY = `#graphql
         pageInfo {
           hasNextPage
           endCursor
+        }
+      }
+    }
+  }
+`;
+
+// 只读取引用变体的业务键,不把 GID 写入导出文件。
+// `metafield(id:)` 自 2023-10 起已移除，改用 Node 接口按 ID 取 Metafield。
+const METAFIELD_VARIANT_REFERENCES_QUERY = `#graphql
+  query MigrationMetafieldVariantReferences($id: ID!, $first: Int!, $after: String) {
+    node(id: $id) {
+      __typename
+      ... on Metafield {
+        reference {
+          __typename
+          ... on ProductVariant {
+            sku
+            title
+            product {
+              handle
+            }
+          }
+        }
+        references(first: $first, after: $after) {
+          nodes {
+            __typename
+            ... on ProductVariant {
+              sku
+              title
+              product {
+                handle
+              }
+            }
+          }
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
         }
       }
     }
@@ -259,6 +303,101 @@ interface ProductNode {
   templateSuffix: string | null;
 }
 
+interface RawVariantReferenceNode {
+  __typename: string;
+  sku?: string | null;
+  title?: string;
+  product?: { handle: string } | null;
+}
+
+const REFERENCE_PAGE_SIZE = 250;
+// references 理论上按 250 分页即可读完;保留上限避免异常数据拖住整个导出
+const MAX_REFERENCE_PAGES = 10;
+
+function toPortableVariantReference(
+  node: RawVariantReferenceNode | null | undefined,
+): PortableVariantReference | null {
+  if (!node || node.__typename !== "ProductVariant") return null;
+  const productHandle = node.product?.handle;
+  if (!productHandle || typeof node.title !== "string") return null;
+  return {
+    kind: "product_variant",
+    productHandle,
+    sku: node.sku ?? null,
+    variantTitle: node.title,
+  };
+}
+
+// 按 metafield id 单独查询引用,避免给全部 metafield 列表增加重字段
+export async function fetchVariantReferenceLookup(
+  graphql: AdminGraphql,
+  metafieldId: string,
+): Promise<VariantReferenceLookup> {
+  const references: PortableVariantReference[] = [];
+  const seen = new Set<string>();
+  let unresolved = 0;
+  let truncated = false;
+  let after: string | null = null;
+  let pages = 0;
+
+  const add = (node: RawVariantReferenceNode | null | undefined) => {
+    if (!node) return;
+    const reference = toPortableVariantReference(node);
+    if (!reference) {
+      unresolved += 1;
+      return;
+    }
+    const key = `${reference.productHandle}\u0000${reference.sku ?? ""}\u0000${reference.variantTitle}`;
+    // 单值引用的 reference 与 references 可能返回同一节点
+    if (seen.has(key)) return;
+    seen.add(key);
+    references.push(reference);
+  };
+
+  do {
+    const response = await graphql(METAFIELD_VARIANT_REFERENCES_QUERY, {
+      variables: { id: metafieldId, first: REFERENCE_PAGE_SIZE, after },
+    });
+    const body = (await response.json()) as {
+      data?: {
+        node: {
+          __typename: string;
+          reference?: RawVariantReferenceNode | null;
+          // 单值引用类型没有 references 连接,可能返回 null
+          references?: {
+            nodes: (RawVariantReferenceNode | null)[];
+            pageInfo: PageInfo;
+          } | null;
+        } | null;
+      };
+      errors?: { message: string }[];
+    };
+    if (body.errors?.length) throw graphqlError(body, "查询 metafield 引用");
+    const node = body.data?.node;
+    // metafield 在列表查询与引用查询之间被删除,或 ID 不是 Metafield
+    if (!node || node.__typename !== "Metafield") {
+      if (pages === 0) unresolved += 1;
+      break;
+    }
+    const metafield = node;
+    if (pages === 0) add(metafield.reference);
+    const connection = metafield.references;
+    if (connection) {
+      for (const node of connection.nodes) add(node);
+    }
+    pages += 1;
+    after = connection?.pageInfo.hasNextPage
+      ? connection.pageInfo.endCursor
+      : null;
+    if (after && pages >= MAX_REFERENCE_PAGES) {
+      truncated = true;
+      break;
+    }
+  } while (after);
+
+  return { references, unresolved, truncated };
+}
+
 const IDS_PER_QUERY = 250;
 
 async function fetchProductsByIds(
@@ -311,11 +450,14 @@ async function fetchProductList(
   return products;
 }
 
-// 传入 productIds 时只读取选中的产品,避免全量扫描店铺目录
+// 传入 productIds 时只读取选中的产品,避免全量扫描店铺目录;
+// 模板配置导出不需要变体级 metafield,可用 includeVariants: false 跳过多余查询
 export async function fetchAllProducts(
   graphql: AdminGraphql,
   productIds?: string[],
+  options: { includeVariants?: boolean } = {},
 ): Promise<FetchedProduct[]> {
+  const includeVariants = options.includeVariants ?? true;
   const targets = productIds?.length
     ? await fetchProductsByIds(graphql, productIds)
     : await fetchProductList(graphql);
@@ -328,7 +470,9 @@ export async function fetchAllProducts(
       title: node.title,
       templateSuffix: node.templateSuffix,
       metafields: await fetchProductMetafields(graphql, node.id),
-      variants: await fetchProductVariants(graphql, node.id),
+      variants: includeVariants
+        ? await fetchProductVariants(graphql, node.id)
+        : [],
     });
   }
   return products;

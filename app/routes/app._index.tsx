@@ -52,7 +52,7 @@ export default function Index() {
             产品与变体 metafield 值按 handle 优先、变体 SKU 兜底匹配目标产品，再按 SKU / 变体标题匹配变体；不会创建产品
           </s-list-item>
           <s-list-item>
-            产品迁移会覆盖目标店铺中相同 namespace/key 的 metafield 值；源商品带模板后缀且与目标不同时会写入该模板，源商品使用默认模板时不清空目标模板；reference 类型值在导出时列为跳过项
+            产品迁移会覆盖目标店铺中相同 namespace/key 的 metafield 值；源商品带模板后缀且与目标不同时会写入该模板，源商品使用默认模板时不清空目标模板；reference 类型值在导出时列为跳过项（模板配置导出除外：variant 引用会附带可移植引用）
           </s-list-item>
           <s-list-item>
             页面迁移仅创建缺失的页面：目标店铺已存在相同 handle 的页面会被跳过，不会覆盖

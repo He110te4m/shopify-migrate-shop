@@ -25,6 +25,12 @@ export function parseProductsFile(raw: string): ProductsMigrationFile {
   } catch {
     throw new Error("文件不是合法的 JSON");
   }
+  const kind = (parsed as { kind?: unknown } | null)?.kind;
+  if (kind === "buy-box-template-config") {
+    throw new Error(
+      "该文件是买盒模板配置（buy-box-template-config），用于离线模板派生，不能在本页导入",
+    );
+  }
   const file = parsed as Partial<ProductsMigrationFile>;
   if (
     !file ||
