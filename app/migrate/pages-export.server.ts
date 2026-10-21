@@ -1,51 +1,31 @@
 import type { AdminApiContext } from "@shopify/shopify-app-react-router/server";
+import { collectMetafieldValues } from "./metafields";
 import { fetchAllPages } from "./pages-graphql.server";
 import type {
+  ExportedMetafieldValue,
   ExportedPage,
-  ExportedPageMetafield,
   PagesMigrationFile,
   SkippedItem,
 } from "./types";
 
 type Admin = AdminApiContext["graphql"];
 
-// reference 类 metafield 的值是店铺内 GID,跨店铺不可解析
-function isNonPortableType(type: string): boolean {
-  const base = type.replace(/^list\./, "");
-  return base.endsWith("_reference");
-}
-
-function isAppOwnedNamespace(namespace: string): boolean {
-  return namespace === "$app" || namespace.startsWith("$app:");
-}
+const EXPORT_ALL: { mode: "all"; patterns: string[] } = {
+  mode: "all",
+  patterns: [],
+};
 
 export function portablePageMetafields(
   handle: string,
-  metafields: ExportedPageMetafield[],
+  metafields: ExportedMetafieldValue[],
   skipped: SkippedItem[],
-): ExportedPageMetafield[] {
-  const out: ExportedPageMetafield[] = [];
-  for (const mf of metafields) {
-    const identifier = `${handle} ${mf.namespace}.${mf.key}`;
-    if (isAppOwnedNamespace(mf.namespace)) {
-      skipped.push({
-        kind: "page",
-        identifier,
-        reason: "app-owned metafield（$app 命名空间）无法跨应用迁移",
-      });
-      continue;
-    }
-    if (isNonPortableType(mf.type)) {
-      skipped.push({
-        kind: "page",
-        identifier,
-        reason: `metafield 类型 ${mf.type} 的值为店铺内 GID，跨店铺不可解析`,
-      });
-      continue;
-    }
-    out.push(mf);
-  }
-  return out;
+): ExportedMetafieldValue[] {
+  return collectMetafieldValues(metafields, {
+    filter: EXPORT_ALL,
+    kind: "page",
+    identifierPrefix: handle,
+    skipped,
+  });
 }
 
 export async function buildPagesMigrationFile(

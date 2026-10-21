@@ -13,18 +13,18 @@ export default function Index() {
       <s-section heading="使用流程">
         <s-paragraph>
           本应用用于在店铺之间迁移 metaobject 与 metafield
-          的定义（仅定义结构，不包含具体值），以及在线商店页面（含 SEO
-          标题/描述与页面 metafield 值）。
+          的定义（仅定义结构，不包含具体值）、产品与变体的 metafield
+          值，以及在线商店页面（含 SEO 标题/描述与页面 metafield 值）。
         </s-paragraph>
         <s-ordered-list>
           <s-list-item>
-            在源店铺打开「导出定义」或「导出页面」，下载 JSON 文件
+            在源店铺打开「导出定义」「导出产品」或「导出页面」，下载 JSON 文件
           </s-list-item>
           <s-list-item>
-            在目标店铺打开「导入定义」或「导入页面」，上传该 JSON 文件并执行预检
+            在目标店铺打开对应的「导入…」页面上传该 JSON 文件并执行预检
           </s-list-item>
           <s-list-item>
-            确认预检报告（冲突与依赖缺失会标记为失败，不会覆盖目标店铺已有数据），然后执行导入
+            确认预检报告（冲突与依赖缺失会标记为失败，不会创建或删除目标店铺已有资源），然后执行导入
           </s-list-item>
           <s-list-item>
             在「迁移历史」中查看每次导入的完整记录
@@ -44,6 +44,12 @@ export default function Index() {
           </s-list-item>
           <s-list-item>
             app-owned 定义（$app 前缀）无法跨应用迁移，会在报告中列出
+          </s-list-item>
+          <s-list-item>
+            产品与变体 metafield 值按 handle 优先、变体 SKU 兜底匹配目标产品，再按 SKU / 变体标题匹配变体；不会创建产品
+          </s-list-item>
+          <s-list-item>
+            产品迁移会覆盖目标店铺中相同 namespace/key 的 metafield 值；reference 类型值在导出时列为跳过项
           </s-list-item>
           <s-list-item>
             页面迁移仅创建缺失的页面：目标店铺已存在相同 handle 的页面会被跳过，不会覆盖

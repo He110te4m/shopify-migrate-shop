@@ -111,18 +111,3 @@ export const PAGE_CREATE = `#graphql
     }
   }
 `;
-
-export const METAFIELDS_SET = `#graphql
-  mutation MigrationMetafieldsSet($metafields: [MetafieldsSetInput!]!) {
-    metafieldsSet(metafields: $metafields) {
-      metafields {
-        id
-      }
-      userErrors {
-        field
-        message
-        code
-      }
-    }
-  }
-`;

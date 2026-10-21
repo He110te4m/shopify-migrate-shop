@@ -49,7 +49,7 @@ export interface MetafieldDef {
   access: MetafieldAccess | null;
 }
 
-export type MigrationItemKind = "metaobject" | "metafield" | "page";
+export type MigrationItemKind = "metaobject" | "metafield" | "page" | "product";
 
 export interface SkippedItem {
   kind: MigrationItemKind;
@@ -66,7 +66,7 @@ export interface MigrationFile {
   skipped: SkippedItem[];
 }
 
-export interface ExportedPageMetafield {
+export interface ExportedMetafieldValue {
   namespace: string;
   key: string;
   type: string;
@@ -79,7 +79,7 @@ export interface ExportedPage {
   body: string;
   isPublished: boolean;
   templateSuffix: string | null;
-  metafields: ExportedPageMetafield[];
+  metafields: ExportedMetafieldValue[];
 }
 
 export interface PagesMigrationFile {
@@ -88,6 +88,40 @@ export interface PagesMigrationFile {
   exportedAt: string;
   shop: string;
   pages: ExportedPage[];
+  skipped: SkippedItem[];
+}
+
+export type MetafieldFilterMode = "all" | "include" | "exclude";
+
+// 按 namespace 全名或 namespace.key 前缀过滤,例如 "custom" 命中 custom 命名空间下所有 key,
+// "custom.foo" 命中 custom.foo 及 custom.foo* ; 结尾的 .* 会被忽略
+export interface MetafieldFilter {
+  mode: MetafieldFilterMode;
+  patterns: string[];
+}
+
+export interface ExportedVariant {
+  sku: string | null;
+  title: string;
+  metafields: ExportedMetafieldValue[];
+}
+
+export interface ExportedProduct {
+  handle: string;
+  title: string;
+  metafields: ExportedMetafieldValue[];
+  variants: ExportedVariant[];
+}
+
+export interface ProductsMigrationFile {
+  version: 1;
+  kind: "products";
+  exportedAt: string;
+  shop: string;
+  filter: MetafieldFilter;
+  // 导出时选择的产品 handle;空数组表示导出全部产品
+  productHandles: string[];
+  products: ExportedProduct[];
   skipped: SkippedItem[];
 }
 

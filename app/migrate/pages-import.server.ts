@@ -1,10 +1,6 @@
 import type { AdminApiContext } from "@shopify/shopify-app-react-router/server";
-import { runMutation } from "./graphql.server";
-import {
-  fetchAllPages,
-  METAFIELDS_SET,
-  PAGE_CREATE,
-} from "./pages-graphql.server";
+import { METAFIELDS_SET, runMutation } from "./graphql.server";
+import { fetchAllPages, PAGE_CREATE } from "./pages-graphql.server";
 import type {
   ExportedPage,
   PagesMigrationFile,
