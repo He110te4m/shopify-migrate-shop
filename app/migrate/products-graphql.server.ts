@@ -136,6 +136,25 @@ const PRODUCT_VARIANTS_QUERY = `#graphql
   }
 `;
 
+// 模板配置导出只需要变体顺序（SKU/title），不需要变体级 metafield。
+const PRODUCT_VARIANT_ORDER_QUERY = `#graphql
+  query MigrationProductVariantOrder($id: ID!, $first: Int!, $after: String) {
+    product(id: $id) {
+      variants(first: $first, after: $after) {
+        nodes {
+          id
+          sku
+          title
+        }
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+      }
+    }
+  }
+`;
+
 // 只读取引用变体的业务键,不把 GID 写入导出文件。
 // `metafield(id:)` 自 2023-10 起已移除，改用 Node 接口按 ID 取 Metafield。
 const METAFIELD_VARIANT_REFERENCES_QUERY = `#graphql
@@ -248,6 +267,45 @@ async function fetchProductMetafields(
     after = connection.pageInfo.hasNextPage ? connection.pageInfo.endCursor : null;
   } while (after);
   return metafields;
+}
+
+// 模板配置导出使用：只取变体顺序，不读 metafield。
+async function fetchProductVariantOrder(
+  graphql: AdminGraphql,
+  productId: string,
+): Promise<FetchedProductVariant[]> {
+  const variants: FetchedProductVariant[] = [];
+  let after: string | null = null;
+  do {
+    const response = await graphql(PRODUCT_VARIANT_ORDER_QUERY, {
+      variables: { id: productId, first: 100, after },
+    });
+    const body = (await response.json()) as {
+      data?: {
+        product: {
+          variants: {
+            nodes: { id: string; sku: string | null; title: string }[];
+            pageInfo: PageInfo;
+          };
+        } | null;
+      };
+      errors?: { message: string }[];
+    };
+    if (body.errors?.length) throw graphqlError(body, "查询产品变体顺序");
+    const connection = body.data?.product?.variants;
+    if (!connection) break;
+    for (const node of connection.nodes) {
+      variants.push({
+        id: node.id,
+        sku: node.sku,
+        title: node.title,
+        metafields: [],
+        metafieldsTruncated: false,
+      });
+    }
+    after = connection.pageInfo.hasNextPage ? connection.pageInfo.endCursor : null;
+  } while (after);
+  return variants;
 }
 
 async function fetchProductVariants(
@@ -451,13 +509,14 @@ async function fetchProductList(
 }
 
 // 传入 productIds 时只读取选中的产品,避免全量扫描店铺目录;
-// 模板配置导出不需要变体级 metafield,可用 includeVariants: false 跳过多余查询
+// 模板配置导出需要变体顺序但不需要变体级 metafield,可用 variantMetafields: false。
 export async function fetchAllProducts(
   graphql: AdminGraphql,
   productIds?: string[],
-  options: { includeVariants?: boolean } = {},
+  options: { includeVariants?: boolean; variantMetafields?: boolean } = {},
 ): Promise<FetchedProduct[]> {
   const includeVariants = options.includeVariants ?? true;
+  const variantMetafields = options.variantMetafields ?? true;
   const targets = productIds?.length
     ? await fetchProductsByIds(graphql, productIds)
     : await fetchProductList(graphql);
@@ -471,7 +530,9 @@ export async function fetchAllProducts(
       templateSuffix: node.templateSuffix,
       metafields: await fetchProductMetafields(graphql, node.id),
       variants: includeVariants
-        ? await fetchProductVariants(graphql, node.id)
+        ? variantMetafields
+          ? await fetchProductVariants(graphql, node.id)
+          : await fetchProductVariantOrder(graphql, node.id)
         : [],
     });
   }

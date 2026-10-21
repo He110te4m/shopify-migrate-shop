@@ -286,8 +286,8 @@ export default function ExportProductsPage() {
         </s-paragraph>
         <s-paragraph>
           运行时导入模式包含全部商品与变体条目（没有 metafield 的条目也会保留，metafields
-          为空数组），便于核对导出范围；模板配置模式只保留商品条目（variants
-          为空数组）。导出按每批 10 个商品分批执行，商品较多时请保持页面打开。
+          为空数组），便于核对导出范围；模板配置模式保留商品条目和变体顺序（SKU /
+          title，不含变体 metafield），用于计算 `variant_index`。导出按每批 10 个商品分批执行，商品较多时请保持页面打开。
         </s-paragraph>
       </s-section>
 

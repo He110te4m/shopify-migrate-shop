@@ -65,7 +65,8 @@ export async function exportProductsChunk(
 ): Promise<ProductsChunk> {
   const templateConfig = kind === "buy-box-template-config";
   const fetched = await fetchAllProducts(graphql, productIds, {
-    includeVariants: !templateConfig,
+    includeVariants: true,
+    variantMetafields: !templateConfig,
   });
 
   const skipped: SkippedItem[] = [];
@@ -86,7 +87,11 @@ export async function exportProductsChunk(
         });
 
     const variants: ExportedVariant[] = templateConfig
-      ? []
+      ? product.variants.map((variant) => ({
+          sku: variant.sku,
+          title: variant.title,
+          metafields: [],
+        }))
       : product.variants.map((variant) => {
           const label = `${product.handle} / ${variant.sku || variant.title}`;
           if (variant.metafieldsTruncated) {
