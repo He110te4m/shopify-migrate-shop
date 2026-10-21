@@ -1,5 +1,5 @@
 import type { AdminApiContext } from "@shopify/shopify-app-react-router/server";
-import { METAFIELDS_SET, runMutation } from "./graphql.server";
+import { METAFIELDS_SET, PRODUCT_UPDATE, runMutation } from "./graphql.server";
 import {
   fetchTargetProducts,
   type TargetProduct,
@@ -40,6 +40,11 @@ export function parseProductsFile(raw: string): ProductsMigrationFile {
     productHandles: Array.isArray(file.productHandles)
       ? file.productHandles
       : [],
+    // 旧文件没有模板字段,归一化为 null(默认模板),不会触发写回
+    products: file.products.map((product) => ({
+      ...product,
+      templateSuffix: product.templateSuffix ?? null,
+    })),
     skipped: Array.isArray(file.skipped) ? file.skipped : [],
   } as ProductsMigrationFile;
 }
@@ -124,25 +129,39 @@ export function resolveProductWrite(
 const variantLabel = (variant: ExportedVariant) =>
   variant.sku || variant.title || "(无 SKU)";
 
-function planProducts(file: ProductsMigrationFile, index: ProductIndex): Plan {
-  // 导出文件保留了没有 metafield 的商品结构,这类商品没有可写入内容,不进入预检列表
-  const candidates = file.products.filter(
-    (product) =>
-      product.metafields.length ||
-      product.variants.some((variant) => variant.metafields.length),
+// 源模板为空表示使用默认模板,此时不写回,避免误清空目标店铺的自定义模板
+function templateNeedsWrite(
+  source: ExportedProduct,
+  target: TargetProduct,
+): boolean {
+  return (
+    Boolean(source.templateSuffix) && source.templateSuffix !== target.templateSuffix
   );
+}
 
-  const items: PlanItem[] = candidates.map((source) => {
+const hasMetafieldValues = (product: ExportedProduct) =>
+  product.metafields.length > 0 ||
+  product.variants.some((variant) => variant.metafields.length > 0);
+
+function planProducts(file: ProductsMigrationFile, index: ProductIndex): Plan {
+  const items: PlanItem[] = [];
+
+  for (const source of file.products) {
+    // 导出文件保留了没有 metafield 也没有模板的商品结构,这类商品没有可写入内容,不进入预检列表
+    if (!hasMetafieldValues(source) && !source.templateSuffix) continue;
+
     const resolved = resolveProductWrite(source, index);
     if (!resolved) {
-      return {
+      items.push({
         kind: "product",
         identifier: source.handle,
         action: "skip",
         reason: "目标店铺未找到匹配的产品（handle 与变体 SKU 均未匹配）",
-      };
+      });
+      continue;
     }
 
+    const templateWrite = templateNeedsWrite(source, resolved.match.product);
     const variantMetafieldCount = resolved.variantWrites.reduce(
       (total, write) => total + write.source.metafields.length,
       0,
@@ -151,20 +170,27 @@ function planProducts(file: ProductsMigrationFile, index: ProductIndex): Plan {
       ? `未匹配变体: ${resolved.unmatchedVariants.map(variantLabel).join(", ")}`
       : null;
 
-    if (!source.metafields.length && !variantMetafieldCount) {
-      return {
+    if (!source.metafields.length && !variantMetafieldCount && !templateWrite) {
+      const reason = source.templateSuffix
+        ? "目标产品已使用相同模板，且没有可写入的 metafield"
+        : "没有可写入的 metafield";
+      items.push({
         kind: "product",
         identifier: source.handle,
         action: "skip",
-        reason: unmatchedNote
-          ? `没有可写入的 metafield；${unmatchedNote}`
-          : "没有可写入的 metafield",
-      };
+        reason: unmatchedNote ? `${reason}；${unmatchedNote}` : reason,
+      });
+      continue;
     }
 
     const parts: string[] = [];
     if (resolved.match.via === "sku") {
       parts.push(`handle 未匹配，按变体 SKU 匹配到目标产品 ${resolved.match.product.handle}`);
+    }
+    if (templateWrite) {
+      parts.push(
+        `模板 ${source.templateSuffix}（目标当前为 ${resolved.match.product.templateSuffix ?? "默认模板"}）`,
+      );
     }
     if (source.metafields.length) {
       parts.push(`产品 metafield ${source.metafields.length} 个`);
@@ -175,13 +201,13 @@ function planProducts(file: ProductsMigrationFile, index: ProductIndex): Plan {
       );
     }
     if (unmatchedNote) parts.push(unmatchedNote);
-    return {
+    items.push({
       kind: "product",
       identifier: source.handle,
       action: "update",
       reason: parts.join("; "),
-    };
-  });
+    });
+  }
 
   const summary: Record<PlanAction, number> = {
     create: 0,
@@ -278,6 +304,23 @@ export async function executeProductsBatch(
       );
     }
 
+    // metafield 已写入后再改模板:模板失败只影响模板,不重复写 metafield
+    const templateWrite = templateNeedsWrite(source, resolved.match.product);
+    if (templateWrite) {
+      const { error } = await runMutation<{ id: string }>(
+        graphql,
+        PRODUCT_UPDATE,
+        {
+          product: {
+            id: resolved.match.product.id,
+            templateSuffix: source.templateSuffix,
+          },
+        },
+        "productUpdate",
+      );
+      if (error) errors.push(`模板: ${error}`);
+    }
+
     if (errors.length) {
       results.push({
         ...item,
@@ -286,10 +329,17 @@ export async function executeProductsBatch(
       });
       continue;
     }
-    results.push({
-      ...item,
-      detail: `已写入产品 metafield ${source.metafields.length} 个，变体 metafield ${variantMetafieldCount} 个（${resolved.variantWrites.length} 个变体）`,
-    });
+
+    const detailParts: string[] = [];
+    if (source.metafields.length || variantMetafieldCount) {
+      detailParts.push(
+        `已写入产品 metafield ${source.metafields.length} 个，变体 metafield ${variantMetafieldCount} 个（${resolved.variantWrites.length} 个变体）`,
+      );
+    }
+    if (templateWrite) {
+      detailParts.push(`模板已更新为 product.${source.templateSuffix}.json`);
+    }
+    results.push({ ...item, detail: detailParts.join("；") });
   }
 
   const executed = new Set(results.map((r) => itemKey(r.kind, r.identifier)));

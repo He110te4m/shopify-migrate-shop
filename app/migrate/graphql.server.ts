@@ -342,6 +342,21 @@ export const METAFIELD_DEFINITION_UPDATE = `#graphql
   }
 `;
 
+export const PRODUCT_UPDATE = `#graphql
+  mutation MigrationProductUpdate($product: ProductUpdateInput!) {
+    productUpdate(product: $product) {
+      product {
+        id
+      }
+      userErrors {
+        field
+        message
+        code
+      }
+    }
+  }
+`;
+
 export const METAFIELDS_SET = `#graphql
   mutation MigrationMetafieldsSet($metafields: [MetafieldsSetInput!]!) {
     metafieldsSet(metafields: $metafields) {

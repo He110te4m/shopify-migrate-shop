@@ -17,6 +17,7 @@ export interface FetchedProduct {
   id: string;
   handle: string;
   title: string;
+  templateSuffix: string | null;
   metafields: RawMetafieldValue[];
   variants: FetchedProductVariant[];
 }
@@ -31,6 +32,7 @@ export interface TargetProduct {
   id: string;
   handle: string;
   title: string;
+  templateSuffix: string | null;
   variants: TargetVariant[];
 }
 
@@ -57,6 +59,7 @@ const PRODUCT_LIST_QUERY = `#graphql
         id
         handle
         title
+        templateSuffix
       }
       pageInfo {
         hasNextPage
@@ -73,6 +76,7 @@ const PRODUCTS_BY_IDS_QUERY = `#graphql
         id
         handle
         title
+        templateSuffix
       }
     }
   }
@@ -133,6 +137,7 @@ const TARGET_PRODUCTS_QUERY = `#graphql
         id
         handle
         title
+        templateSuffix
         variants(first: 250) {
           nodes {
             id
@@ -251,6 +256,7 @@ interface ProductNode {
   id: string;
   handle: string;
   title: string;
+  templateSuffix: string | null;
 }
 
 const IDS_PER_QUERY = 250;
@@ -320,6 +326,7 @@ export async function fetchAllProducts(
       id: node.id,
       handle: node.handle,
       title: node.title,
+      templateSuffix: node.templateSuffix,
       metafields: await fetchProductMetafields(graphql, node.id),
       variants: await fetchProductVariants(graphql, node.id),
     });
@@ -349,6 +356,7 @@ export async function fetchTargetProducts(
             id: string;
             handle: string;
             title: string;
+            templateSuffix: string | null;
             variants: {
               nodes: TargetVariant[];
               pageInfo: PageInfo;
@@ -394,6 +402,7 @@ export async function fetchTargetProducts(
         id: node.id,
         handle: node.handle,
         title: node.title,
+        templateSuffix: node.templateSuffix,
         variants,
       });
     }

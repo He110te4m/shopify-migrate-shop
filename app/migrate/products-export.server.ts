@@ -59,6 +59,7 @@ export async function exportProductsChunk(
     products.push({
       handle: product.handle,
       title: product.title,
+      templateSuffix: product.templateSuffix,
       metafields,
       variants,
     });

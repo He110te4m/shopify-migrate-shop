@@ -275,9 +275,11 @@ export default function ImportProductsPage() {
         <s-paragraph>
           匹配规则：产品按 handle 匹配，handle
           不存在时用变体 SKU 兜底；变体按 SKU 匹配，其次按变体标题。不会创建产品或变体，未匹配的项会记为跳过。
-          文件中没有 metafield 值的商品不会出现在预检列表。导入会覆盖目标店铺中相同 namespace/key 的 metafield
-          值，请确认预检结果后再执行。建议先在目标店铺导入 metafield
-          定义，否则可能因类型与已有定义不一致而写入失败。
+          文件中既没有 metafield 值也没有模板后缀的商品不会出现在预检列表。导入会覆盖目标店铺中相同
+          namespace/key 的 metafield 值；源商品带模板后缀且与目标不同时会写入该模板，源商品使用默认模板时不会清空目标已有模板。
+          请确认预检结果后再执行。建议先在目标店铺导入 metafield
+          定义，否则可能因类型与已有定义不一致而写入失败；模板写回要求目标店铺主题存在对应的
+          product.&lt;suffix&gt;.json 模板文件，否则该商品会记为导入失败。
         </s-paragraph>
         <s-stack direction="block" gap="base">
           <input
@@ -365,7 +367,7 @@ export default function ImportProductsPage() {
               有 {report.summary.fail} 个产品写入失败，请查看下表原因。本次记录已保存到「迁移历史」。
             </s-banner>
           ) : (
-            <s-banner tone="success">全部 metafield 写入完成，记录已保存到「迁移历史」。</s-banner>
+            <s-banner tone="success">全部写入完成（metafield 与模板），记录已保存到「迁移历史」。</s-banner>
           )}
           <ItemsTable items={report.results} showDetail />
           <s-stack direction="inline" gap="base">

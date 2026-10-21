@@ -109,6 +109,8 @@ export interface ExportedVariant {
 export interface ExportedProduct {
   handle: string;
   title: string;
+  // 产品使用的主题模板后缀,对应 product.<templateSuffix>.json;null 表示默认模板
+  templateSuffix: string | null;
   metafields: ExportedMetafieldValue[];
   variants: ExportedVariant[];
 }

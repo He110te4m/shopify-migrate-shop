@@ -244,8 +244,10 @@ export default function ExportProductsPage() {
           metafield 值，并下载为一个 JSON 文件。随后到目标店铺的「导入产品」页面上传该文件。
         </s-paragraph>
         <s-paragraph>
-          仅导出 metafield 值，不迁移产品标题、价格、图片等基础字段，也不会在目标店铺创建商品。
-          app-owned metafield（$app 命名空间）与 reference 类型（产品、变体、文件等引用，值为源店铺
+          除 metafield 值外，每个商品还会导出其主题模板后缀（templateSuffix，对应
+          product.&lt;suffix&gt;.json），未使用自定义模板时为空。不迁移产品标题、价格、图片等基础字段，
+          也不会在目标店铺创建商品。 app-owned metafield（$app 命名空间）与 reference
+          类型（产品、变体、文件等引用，值为源店铺
           GID）无法跨店铺迁移，会在导出文件中列为跳过项。
         </s-paragraph>
         <s-paragraph>
