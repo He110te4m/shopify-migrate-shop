@@ -22,7 +22,7 @@
   },
   "dependencies": {
     "@netlify/blobs": "^11.0.2",
-    "@react-router/dev": "^7.12.0",
+    "@react-router/dev": "^8.3.0",
     "@react-router/fs-routes": "^7.12.0",
     "@react-router/node": "^7.12.0",
     "@react-router/serve": "^7.12.0",
